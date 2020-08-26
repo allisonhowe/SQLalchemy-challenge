@@ -33,49 +33,67 @@ app = Flask(__name__)
 #################################################
 
 @app.route("/")
-def welcome():
+def home():
     """List all available api routes."""
     return (
         f"Available Routes in the Hawaii Weather API:<br/>"
         f"/api/v1.0/precipitation<br/>"
         f"/api/v1.0/stations<br/>"
         f"/api/v1.0/tobs<br/>"
-        f"/api/v1.0/<start>` and `/api/v1.0/<start>/<end>"
-    )
+        f"/api/v1.0/<start><br/>"
+        f"/api/v1.0/<start>/<end>")
 
 
 @app.route("/api/v1.0/precipitation")
-def precipitation():
+def precip():
     """Convert precipitation query results to dictionary & return as JSON representation."""
+    session = Session(engine)
     lastdate = session.query(measurement.date).order_by(measurement.date.desc()).first().date
     year_ago = dt.date.fromisoformat(lastdate) - dt.timedelta(days=365)
     sel = [measurement.date, measurement.prcp]
     last12 = session.query(*sel).filter(measurement.date > year_ago).order_by(measurement.date).all()
+    session.close()
     prec_dict = dict(last12)
     return jsonify(prec_dict)
 
 
-# @app.route("/api/v1.0/passengers")
-# def passengers():
-#     # Create our session (link) from Python to the DB
-#     session = Session(engine)
+@app.route("/api/v1.0/stations")
+def all_stations():
+    """Return a JSON list of stations from the dataset"""
+    session = Session(engine)
+    all_stations = session.query(measurement.station).group_by(measurement.station).all()
+    session.close()
+    all_stations_list = list(np.ravel(all_stations))
+    return jsonify(all_stations_list)
 
-#     """Return a list of passenger data including the name, age, and sex of each passenger"""
-#     # Query all passengers
-#     results = session.query(Passenger.name, Passenger.age, Passenger.sex).all()
 
-#     session.close()
+@app.route("/api/v1.0/tobs")
+def tobs():
+    """Query the dates and temperature observations of the most active station for the last year of data, then return a
+        JSON list of that station's TOBS for the previous year."""
+    session = Session(engine)
+    lastdate = session.query(measurement.date).order_by(measurement.date.desc()).first().date
+    year_ago = dt.date.fromisoformat(lastdate) - dt.timedelta(days=365)
+    active_station = session.query(measurement.station, func.count(measurement.station)).\
+        group_by(measurement.station).\
+        order_by(func.count(measurement.station).desc()).all()
+    last12_temp = session.query(measurement.date, measurement.station, measurement.tobs).\
+        filter(measurement.station == active_station[0][0]).\
+        filter(measurement.date > year_ago).\
+        order_by(measurement.date).all()
+    session.close()
+    temps = []
+    for date, station, tobs in last12_temp:
+        temp_dict = {}
+        temp_dict["date"] = date
+        temp_dict["station"] = station
+        temp_dict["tobs"] = tobs
+        temps.append(temp_dict)
+    return jsonify(temps)
 
-#     # Create a dictionary from the row data and append to a list of all_passengers
-#     all_passengers = []
-#     for name, age, sex in results:
-#         passenger_dict = {}
-#         passenger_dict["name"] = name
-#         passenger_dict["age"] = age
-#         passenger_dict["sex"] = sex
-#         all_passengers.append(passenger_dict)
 
-#     return jsonify(all_passengers)
+# @app.route("/api/v1.0/<start>")
+
 
 
 if __name__ == '__main__':
